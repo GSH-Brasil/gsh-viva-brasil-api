@@ -3,7 +3,15 @@ import OpenAI from "openai";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// helper pra ler JSON do body no Node "puro" da Vercel
+// Se quiser restringir, troque "*" por seu domínio (ex.: "https://globalspeakhub.com")
+const CORS_ORIGIN = "*";
+
+function setCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", CORS_ORIGIN);
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
 async function readJson(req) {
   return await new Promise((resolve) => {
     let data = "";
@@ -16,8 +24,15 @@ async function readJson(req) {
 }
 
 export default async function handler(req, res) {
+  setCors(res);
+
+  // Responde preflight
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+    res.setHeader("Allow", "POST, OPTIONS");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
