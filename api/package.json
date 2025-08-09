@@ -1,0 +1,8 @@
+{
+  "name": "gsh-viva-brasil",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "openai": "^4.55.0"
+  }
+}
