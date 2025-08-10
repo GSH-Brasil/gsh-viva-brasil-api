@@ -1,78 +1,64 @@
 // api/chat.js
-
-const ALLOWED_ORIGIN = 'https://globalspeak.online';
-
-function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
-  res.setHeader('Vary', 'Origin'); // bom p/ caches/CDN
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-}
-
 export default async function handler(req, res) {
-  // Trata a preflight request do browser
-  if (req.method === 'OPTIONS') {
-    setCorsHeaders(res);
-    return res.status(204).end(); // sem corpo
-  }
+  // CORS básico
+  res.setHeader('Access-Control-Allow-Origin', 'https://globalspeak.online');
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method !== 'POST') {
-    setCorsHeaders(res);
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    setCorsHeaders(res);
-
     const { prompt, level } = req.body || {};
-    if (!prompt) {
-      return res.status(400).json({ error: 'Missing prompt' });
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'Missing "prompt" (string)' });
     }
 
-    // ==== SUA CHAMADA AO OPENAI AQUI ====
-    // Exemplo com fetch do OpenAI Responses API:
-    // Certifique-se de ter OPENAI_API_KEY em Vercel -> Settings -> Environment Variables
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
       return res.status(500).json({ error: 'Missing OPENAI_API_KEY' });
     }
 
-    // Ajuste o sistema/estilo conforme seu caso
-    const systemPrompt = `
-Você é um professor brasileiro de PLE. Fale simples, amigável.
-Nível do aluno: ${level || 'A2'}. Responda curto, com exemplos práticos.
-`;
-
-    const resp = await fetch('https://api.openai.com/v1/responses', {
+    // ===== OpenAI (Responses API) =====
+    const r = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openaiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-mini',
+        model: 'gpt-4o-mini',
         input: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
+          {
+            role: 'system',
+            content:
+              `Você é um professor brasileiro paciente de PLE. Fale SEMPRE em português simples, `
+              + `adaptando ao nível do aluno (${level || 'A2'}). Seja breve, corrija de leve e incentive.`
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
         ]
       })
     });
 
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => '');
-      return res.status(resp.status).send(txt || 'OpenAI error');
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      return res.status(502).json({ error: 'OpenAI error', details: txt });
     }
 
-    const data = await resp.json();
-    // Compatível com Responses API: pegue o texto
-    const reply =
-      data?.output_text ||
-      data?.choices?.[0]?.message?.content ||
-      '(sem resposta)';
+    const data = await r.json();
 
+    // 3 caminhos possíveis conforme o client da OpenAI:
+    const direct = data.output_text; // novo campo helper do Responses
+    const choice0 = data.output?.[0]?.content?.[0]?.text; // formato estruturado
+    const legacy = data.choices?.[0]?.message?.content; // fallback
+
+    const reply = direct || choice0 || legacy || '(sem resposta gerada)';
     return res.status(200).json({ reply });
   } catch (err) {
-    console.error('[API ERROR]', err);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    console.error('API /chat error:', err);
+    return res.status(500).json({ error: 'Server error' });
   }
 }
