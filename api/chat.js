@@ -3,8 +3,8 @@ import OpenAI from "openai";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Se quiser restringir, troque "*" por seu domínio (ex.: "https://globalspeakhub.com")
-const CORS_ORIGIN = "*";
+// Se quiser restringir, troque "*" por seu domínio (ex.: "https://globalspeakhub.online")
+const CORS_ORIGIN = "https://globalspeakhub.online";
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", CORS_ORIGIN);
