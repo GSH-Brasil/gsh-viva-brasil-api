@@ -1,61 +1,78 @@
 // api/chat.js
-import OpenAI from "openai";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ALLOWED_ORIGIN = 'https://globalspeak.online';
 
-// Se quiser restringir, troque "*" por seu domínio (ex.: "https://globalspeakhub.online")
-const CORS_ORIGIN = "https://globalspeakhub.online";
-
-function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", CORS_ORIGIN);
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
-
-async function readJson(req) {
-  return await new Promise((resolve) => {
-    let data = "";
-    req.on("data", (chunk) => (data += chunk));
-    req.on("end", () => {
-      try { resolve(JSON.parse(data || "{}")); }
-      catch { resolve({}); }
-    });
-  });
+function setCorsHeaders(res) {
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  res.setHeader('Vary', 'Origin'); // bom p/ caches/CDN
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
 export default async function handler(req, res) {
-  setCors(res);
-
-  // Responde preflight
-  if (req.method === "OPTIONS") {
-    return res.status(204).end();
+  // Trata a preflight request do browser
+  if (req.method === 'OPTIONS') {
+    setCorsHeaders(res);
+    return res.status(204).end(); // sem corpo
   }
 
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST, OPTIONS");
-    return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== 'POST') {
+    setCorsHeaders(res);
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
-
-  const { prompt, level } = await readJson(req);
-
-  const system = `Você é um professor de português brasileiro para hispanohablantes, nível ${
-    level || "A2"
-  }. Corrija gentilmente, explique em espanhol quando necessário e mantenha a conversa leve, prática e cultural.`;
 
   try {
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.7,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: prompt || "Vamos praticar português." },
-      ],
+    setCorsHeaders(res);
+
+    const { prompt, level } = req.body || {};
+    if (!prompt) {
+      return res.status(400).json({ error: 'Missing prompt' });
+    }
+
+    // ==== SUA CHAMADA AO OPENAI AQUI ====
+    // Exemplo com fetch do OpenAI Responses API:
+    // Certifique-se de ter OPENAI_API_KEY em Vercel -> Settings -> Environment Variables
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      return res.status(500).json({ error: 'Missing OPENAI_API_KEY' });
+    }
+
+    // Ajuste o sistema/estilo conforme seu caso
+    const systemPrompt = `
+Você é um professor brasileiro de PLE. Fale simples, amigável.
+Nível do aluno: ${level || 'A2'}. Responda curto, com exemplos práticos.
+`;
+
+    const resp = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        input: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ]
+      })
     });
 
-    const reply = completion.choices?.[0]?.message?.content ?? "";
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      return res.status(resp.status).send(txt || 'OpenAI error');
+    }
+
+    const data = await resp.json();
+    // Compatível com Responses API: pegue o texto
+    const reply =
+      data?.output_text ||
+      data?.choices?.[0]?.message?.content ||
+      '(sem resposta)';
+
     return res.status(200).json({ reply });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "OpenAI error" });
+    console.error('[API ERROR]', err);
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 }
